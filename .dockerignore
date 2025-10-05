@@ -1,0 +1,21 @@
+# Maven / build
+target
+**/target
+pom.xml.original
+
+# IDEs
+.idea
+*.iml
+.vscode
+
+# Git
+.git
+.gitignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local env / secrets
+.env
+.env.local

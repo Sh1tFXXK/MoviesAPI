@@ -1,4 +1,4 @@
 package com.example.moviesapi.Exception;
 
-public class GlobalException {
+public class GlobalException extends Exception{
 }
