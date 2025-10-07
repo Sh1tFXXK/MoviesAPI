@@ -96,13 +96,14 @@ public class MoviesController {
             Error error = new Error("INTERNAL_SERVER_ERROR", "Failed to create movie");
             return ResponseEntity.status(500).body(error);
         }
-        return ResponseEntity.created(URI.create("https://api.example.com/movies/" + movie.getId()))
+        // 使用环境变量构建Location头，避免硬编码
+        String baseUrl = System.getenv("BASE_URL");
+        return ResponseEntity.created(URI.create(baseUrl + "/movies/" + movie.getId()))
                 .body(movie);
     }
     
     @PostMapping("/{title}/ratings")
     public ResponseEntity<?> ratingsPost(@PathVariable String title, @RequestBody RatingSubmit ratingSubmit, HttpServletRequest request) {
-        // 获取评分者ID - 这是ratings端点的认证方式
         String raterId = request.getHeader("X-Rater-Id");
         if (raterId == null || raterId.isEmpty()) {
             Error error = new Error("UNAUTHORIZED", "Missing or invalid authentication information");

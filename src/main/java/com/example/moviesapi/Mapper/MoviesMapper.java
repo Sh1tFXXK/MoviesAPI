@@ -43,9 +43,6 @@ public interface MoviesMapper {
     @Select("SELECT * FROM ratings WHERE movieTitle = #{title} AND raterId = #{raterId}")
     RatingResult selectRating(@Param("title") String title, @Param("raterId") String raterId);
 
-    @Update("UPDATE ratings SET rating = #{rating} WHERE movieTitle = #{title} AND raterId = #{raterId}")
-    int updateRating(@Param("title") String title, @Param("rating") Number rating, @Param("raterId") String raterId);
-
     @Insert("INSERT INTO ratings(movieTitle, raterId, rating) VALUES(#{title}, #{raterId}, #{rating}) ON DUPLICATE KEY UPDATE rating = VALUES(rating)")
     int upsertRating(@Param("title") String title, @Param("raterId") String raterId, @Param("rating") Number rating);
 

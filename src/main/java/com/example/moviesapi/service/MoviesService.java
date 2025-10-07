@@ -2,6 +2,7 @@ package com.example.moviesapi.service;
 
 import com.example.moviesapi.Entity.*;
 import com.example.moviesapi.Mapper.MoviesMapper;
+import lombok.Getter;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -176,13 +177,10 @@ public class MoviesService {
     public RatingSubmissionResult ratingsPost(String title, Number rating, String raterId) {
         // 首先检查电影是否存在
         if (!movieExists(title)) {
-            return null; // 电影不存在，返回null让Controller返回404
+            return null;
         }
-        
-        // 检查评分是否已存在
+
         boolean wasExisting = ratingExists(title, raterId);
-        
-        // 执行upsert操作
         moviesMapper.upsertRating(title, raterId, rating);
         
         // 返回评分结果
@@ -198,6 +196,7 @@ public class MoviesService {
      * 评分提交结果包装类
      */
     public static class RatingSubmissionResult {
+        @Getter
         private final RatingResult ratingResult;
         private final boolean wasExisting;
         
@@ -205,11 +204,7 @@ public class MoviesService {
             this.ratingResult = ratingResult;
             this.wasExisting = wasExisting;
         }
-        
-        public RatingResult getRatingResult() {
-            return ratingResult;
-        }
-        
+
         public boolean wasExisting() {
             return wasExisting;
         }
