@@ -8,6 +8,6 @@ public class MovieCreate {
     private String genre;
     private String releaseDate;
     private String distributor;
-    private Integer budget;
+    private Long budget;
     private String mpaRating;
 }

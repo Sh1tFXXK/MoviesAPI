@@ -1,7 +1,6 @@
 package com.example.moviesapi.Entity;
 
 import lombok.Data;
-import java.time.OffsetDateTime;
 
 /**
  * 电影票房数据结构类
@@ -9,8 +8,8 @@ import java.time.OffsetDateTime;
  */
 @Data
 public class BoxOffice {
+    private BoxOffice_revenue revenue;
     private String currency;
     private String source;
-    private OffsetDateTime lastUpdated;
-    private BoxOffice_revenue revenue;
+    private String lastUpdated;
 }

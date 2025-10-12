@@ -4,6 +4,6 @@ import lombok.Data;
 
 @Data
 public class BoxOffice_revenue {
-    private Integer worldwide;
-    private Integer openingWeekendUSA;
+    private Long worldwide;
+    private Long openingWeekendUSA;
 }

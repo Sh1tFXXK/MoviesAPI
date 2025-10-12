@@ -7,10 +7,7 @@ public class BoxOfficeRecord {
     private String title;
     private String distributor;
     private String releaseDate;
-    private Integer budget;
+    private Long budget;
     private BoxOffice_revenue revenue;
     private String mpaRating;
-    private String currency;
-    private String source;
-    private String lastUpdated;
 }

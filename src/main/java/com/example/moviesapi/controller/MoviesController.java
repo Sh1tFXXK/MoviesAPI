@@ -11,6 +11,9 @@ import org.springframework.web.bind.annotation.*;
 
 
 import java.net.URI;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 
 @RestController
 @RequestMapping("/movies")
@@ -29,7 +32,7 @@ public class MoviesController {
      * @param genre 分类
      * @param distributor 分销商
      * @param budget 预算
-     * @param mapRating 评分
+     * @param mpaRating 评分
      * @param limit 每页数量
      * @param cursor 分页游标
      * @return
@@ -38,34 +41,27 @@ public class MoviesController {
      */
 
     @GetMapping
-    public ResponseEntity<?> moviesGet(String q , Integer year , String genre , String distributor, Integer budget, String mapRating, Integer limit, String cursor, HttpServletRequest request) {
+    public ResponseEntity<?> moviesGet(String q , Integer year , String genre , String distributor, Integer budget, String mpaRating, Integer limit, String cursor, HttpServletRequest request) {
         //校验必要参数
-        
-        // 校验 limit 参数
         if (limit != null && (limit < 1 || limit > 100)) {
-            Error error = new Error("BAD_REQUEST", "Limit must be between 1 and 100");
+            Error error = new Error("BAD_REQUEST", "Invalid parameters");
             return ResponseEntity.badRequest().body(error);
         }
-        
-        // 校验 year 参数
         if (year != null && (year < 1900 || year > 2030)) {
-            Error error = new Error("BAD_REQUEST", "Year must be between 1900 and 2030");
+            Error error = new Error("BAD_REQUEST", "Invalid parameters");
             return ResponseEntity.badRequest().body(error);
         }
-        
-        // 校验 budget 参数
         if (budget != null && budget < 0) {
-            Error error = new Error("BAD_REQUEST", "Budget must be non-negative");
+            Error error = new Error("BAD_REQUEST", "Invalid parameters");
+            return ResponseEntity.badRequest().body(error);
+        }
+
+        if (mpaRating != null && !isValidMpaRating(mpaRating)) {
+            Error error = new Error("BAD_REQUEST", "Invalid parameters");
             return ResponseEntity.badRequest().body(error);
         }
         
-        // 校验 mapRating 参数（MPA评级）
-        if (mapRating != null && !isValidMpaRating(mapRating)) {
-            Error error = new Error("BAD_REQUEST", "Invalid MPA rating. Valid values are: G, PG, PG-13, R, NC-17");
-            return ResponseEntity.badRequest().body(error);
-        }
-        
-        MoviePage page = moviesService.moviesGet(q,year,genre,distributor,budget,mapRating,limit,cursor);
+        MoviePage page = moviesService.moviesGet(q,year,genre,distributor,budget,mpaRating,limit,cursor);
         return ResponseEntity.ok(page);
     }
     @PostMapping
@@ -77,27 +73,49 @@ public class MoviesController {
             return ResponseEntity.status(401).body(error);
         }
         // 权限验证 - 检查Bearer token是否有效
-        String token = authHeader.substring(7); // 移除 "Bearer " 前缀
+        String token = authHeader.substring(7);
         String expectedToken = authToken;
         if (expectedToken == null || expectedToken.isEmpty() || !expectedToken.equals(token)) {
             Error error = new Error("UNAUTHORIZED", "Missing or invalid authentication information");
             return ResponseEntity.status(401).body(error);
         }
-        //校验必要参数
-        if(movieCreate.getTitle() == null || movieCreate.getTitle().trim().isEmpty() || 
-           movieCreate.getReleaseDate() == null || 
-           movieCreate.getGenre() == null || movieCreate.getGenre().trim().isEmpty()){
+        // 参数校验：标题不能为空
+        if (movieCreate.getTitle() == null || movieCreate.getTitle().trim().isEmpty()) {
+            Error error = new Error("UNPROCESSABLE_ENTITY","Invalid parameters");
+            return ResponseEntity.status(422).body(error);
+        }
+        // 参数校验：genre 必填
+        if (movieCreate.getGenre() == null || movieCreate.getGenre().trim().isEmpty()) {
+            Error error = new Error("UNPROCESSABLE_ENTITY","Invalid parameters");
+            return ResponseEntity.status(422).body(error);
+        }
+        // 参数校验：releaseDate 必填且必须为 yyyy-MM-dd
+        if (movieCreate.getReleaseDate() == null) {
+            Error error = new Error("UNPROCESSABLE_ENTITY","Invalid parameters");
+            return ResponseEntity.status(422).body(error);
+        }
+        try {
+            LocalDate.parse(movieCreate.getReleaseDate(), DateTimeFormatter.ISO_LOCAL_DATE);
+        } catch (DateTimeParseException e) {
             Error error = new Error("UNPROCESSABLE_ENTITY","Invalid parameters");
             return ResponseEntity.status(422).body(error);
         }
         //创建电影
         Movie movie = moviesService.moviesPost(movieCreate);
         if (movie == null) {
-            Error error = new Error("INTERNAL_SERVER_ERROR", "Failed to create movie");
+            Error error = new Error("BAD_REQUEST", "Invalid parameters");
             return ResponseEntity.status(500).body(error);
         }
-        // 使用环境变量构建Location头，避免硬编码
+        // 使用环境变量构建Location头，避免硬编码；若未配置则从请求推导为绝对URI
         String baseUrl = System.getenv("BASE_URL");
+        if (baseUrl == null || baseUrl.isEmpty()) {
+            String scheme = request.getScheme();
+            String host = request.getServerName();
+            int port = request.getServerPort();
+            boolean omitPort = ("http".equalsIgnoreCase(scheme) && port == 80) || ("https".equalsIgnoreCase(scheme) && port == 443);
+            String portPart = omitPort ? "" : (":" + port);
+            baseUrl = scheme + "://" + host + portPart;
+        }
         return ResponseEntity.created(URI.create(baseUrl + "/movies/" + movie.getId()))
                 .body(movie);
     }
@@ -112,7 +130,7 @@ public class MoviesController {
         
         //校验必要参数
         if(title == null || title.isEmpty()) {
-            Error error = new Error("BAD_REQUEST", "Title is required");
+            Error error = new Error("BAD_REQUEST", "Invalid parameters");
             return ResponseEntity.status(400).body(error);
         }
         
@@ -128,7 +146,7 @@ public class MoviesController {
         
         // 检查电影是否存在
         if (result == null) {
-            Error error = new Error("NOT_FOUND", "Movie not found");
+            Error error = new Error("NOT_FOUND", "Resource not found");
             return ResponseEntity.status(404).body(error);
         }
         

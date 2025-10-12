@@ -1,4 +1,4 @@
-version: "3.8"
+
 
 services:
   app:
@@ -17,10 +17,11 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
+      test: ["CMD-SHELL", "timeout 3 bash -c '</dev/tcp/localhost/8080' && echo 'Health check passed' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   db:
     image: mysql:8.0

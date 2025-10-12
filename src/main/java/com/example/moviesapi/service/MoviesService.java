@@ -3,16 +3,24 @@ package com.example.moviesapi.service;
 import com.example.moviesapi.Entity.*;
 import com.example.moviesapi.Mapper.MoviesMapper;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
+@Slf4j
 @Service
 public class MoviesService {
 
@@ -24,6 +32,9 @@ public class MoviesService {
     
     @Value("${boxoffice.url:}")
     private String boxOfficeUrl;
+    
+    @Value("${boxoffice.api.key:}")
+    private String boxOfficeApiKey;
 
     /**
     *      * POST
@@ -45,15 +56,34 @@ public class MoviesService {
             // 插入失败
             return null;
         }
-        
+
+        // 注意：由于使用了 useGeneratedKeys，movie.getDbId() 现在包含数据库生成的 Long 类型 ID
+        Long dbId = movie.getDbId();
+        movie.setId("m_" + dbId);
+
         try {
             // 调用票房API
             if (boxOfficeUrl != null && !boxOfficeUrl.isEmpty()) {
-                String url = boxOfficeUrl + "?title=" + movieCreate.getTitle();
-                ResponseEntity<BoxOfficeRecord> response = restTemplate.getForEntity(url, BoxOfficeRecord.class);
+                String url = UriComponentsBuilder.fromHttpUrl(boxOfficeUrl)
+                        .queryParam("title", movieCreate.getTitle())
+                        .toUriString();
+                
+                log.info("Calling Box Office API for movie: {}", movieCreate.getTitle());
+                
+                // 设置请求头，包含 X-API-Key 认证
+                HttpHeaders headers = new HttpHeaders();
+                if (boxOfficeApiKey != null && !boxOfficeApiKey.isEmpty()) {
+                    headers.set("X-API-Key", boxOfficeApiKey);
+                }
+                HttpEntity<?> entity = new HttpEntity<>(headers);
+                
+                ResponseEntity<BoxOfficeRecord> response = restTemplate.exchange(
+                    url, HttpMethod.GET, entity, BoxOfficeRecord.class);
                 BoxOfficeRecord boxOfficeRecord = response.getBody();
                 
                 if (response.getStatusCode().value() == 200 && boxOfficeRecord != null) {
+                    log.info("Successfully retrieved box office data for movie: {}", movieCreate.getTitle());
+                    
                     // 用户提供的字段优先，只有当用户未提供时才使用API数据
                     if (movie.getDistributor() == null || movie.getDistributor().isEmpty()) {
                         movie.setDistributor(boxOfficeRecord.getDistributor());
@@ -64,48 +94,51 @@ public class MoviesService {
                     if (movie.getMpaRating() == null || movie.getMpaRating().isEmpty()) {
                         movie.setMpaRating(boxOfficeRecord.getMpaRating());
                     }
-                    
-                    // 设置票房信息
-                    BoxOffice boxOffice = new BoxOffice();
-                    if (boxOfficeRecord.getRevenue() != null) {
+
+                    if (boxOfficeRecord.getRevenue() != null && boxOfficeRecord.getRevenue().getWorldwide() != null) {
+                        BoxOffice boxOffice = new BoxOffice();
                         boxOffice.setRevenue(boxOfficeRecord.getRevenue());
+                        boxOffice.setCurrency("USD");
+                        boxOffice.setSource("BoxOfficeAPI");
+                        boxOffice.setLastUpdated(java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME) + "Z");
+                        movie.setBoxOffice(boxOffice);
+                    } else {
+                        movie.setBoxOffice(null);
                     }
-                    boxOffice.setCurrency(boxOfficeRecord.getCurrency());
-                    boxOffice.setSource(boxOfficeRecord.getSource());
-                    
-                    // 转换时间格式
-                    if (boxOfficeRecord.getLastUpdated() != null) {
-                        try {
-                            boxOffice.setLastUpdated(java.time.OffsetDateTime.parse(boxOfficeRecord.getLastUpdated()));
-                        } catch (Exception e) {
-                            // 如果时间格式解析失败，设置为当前时间
-                            boxOffice.setLastUpdated(java.time.OffsetDateTime.now());
-                        }
-                    }
-                    movie.setBoxOffice(boxOffice);
                 } else {
+                    log.warn("Box Office API returned non-200 response or empty body for movie: {}", movieCreate.getTitle());
                     movie.setBoxOffice(null);
                 }
+            } else {
+                log.warn("Box Office URL not configured, skipping box office data retrieval");
+                movie.setBoxOffice(null);
             }
         } catch (HttpStatusCodeException e) {
-            // 只捕获上游异常，不影响创建主流程
-            // boxOffice = null
+            // 记录具体的HTTP错误状态码和响应
+            log.warn("Box Office API returned error {} for movie '{}': {}", 
+                     e.getStatusCode(), movieCreate.getTitle(), e.getResponseBodyAsString());
             movie.setBoxOffice(null);
         } catch (Exception e) {
-            // 其他异常也兜底，boxOffice = null
+            // 记录其他异常
+            log.error("Error calling Box Office API for movie '{}': {}", movieCreate.getTitle(), e.getMessage(), e);
             movie.setBoxOffice(null);
         }
         
         // 更新电影记录
         int updateResult = moviesMapper.update(movie);
         if (updateResult <= 0) {
-            // 更新失败，但不返回null，返回原始movie
             return movie;
         }
         
         // 返回更新后的电影记录
-        Movie result = moviesMapper.selectById(movie.getId());
-        return result != null ? result : movie; // 如果查询失败，至少返回原始movie
+        Movie result = moviesMapper.selectById(movie.getDbId());
+        if (result != null) {
+            if ((result.getId() == null || result.getId().isEmpty()) && result.getDbId() != null) {
+                result.setId("m_" + result.getDbId());
+            }
+            return result;
+        }
+        return movie;
     }
 
     public MoviePage moviesGet(String q, Integer year, String genre, String distributor, Integer budget, String mpaRating, Integer limit, String cursor) {
@@ -132,8 +165,8 @@ public class MoviesService {
             }
 
             // 设置分页参数
-            int pageSize = (limit != null && limit > 0) ? limit : 10; // 默认每页10条
-            params.put("limit", pageSize + 1); // 多查一条用于判断是否有下一页
+            int pageSize = (limit != null && limit > 0) ? limit : 10;
+            params.put("limit", pageSize + 1);
 
             // 处理游标
             int offset = 0;
@@ -155,6 +188,12 @@ public class MoviesService {
             MoviePage page = new MoviePage();
             List<Movie> items = movies.size() > pageSize ?
                     movies.subList(0, pageSize) : movies;
+            // 为每个返回的条目补齐对外 id
+            for (Movie m : items) {
+                if (m != null && (m.getId() == null || m.getId().isEmpty()) && m.getDbId() != null) {
+                    m.setId("m_" + m.getDbId());
+                }
+            }
             page.setItems(items);
 
             // 设置下一个游标
@@ -182,16 +221,16 @@ public class MoviesService {
 
         boolean wasExisting = ratingExists(title, raterId);
         moviesMapper.upsertRating(title, raterId, rating);
-        
+
         // 返回评分结果
         RatingResult ratingResult = new RatingResult();
         ratingResult.setMovieTitle(title);
         ratingResult.setRaterId(raterId);
         ratingResult.setRating(rating);
-        
+
         return new RatingSubmissionResult(ratingResult, wasExisting);
     }
-    
+
     /**
      * 评分提交结果包装类
      */
@@ -199,7 +238,7 @@ public class MoviesService {
         @Getter
         private final RatingResult ratingResult;
         private final boolean wasExisting;
-        
+
         public RatingSubmissionResult(RatingResult ratingResult, boolean wasExisting) {
             this.ratingResult = ratingResult;
             this.wasExisting = wasExisting;
@@ -209,7 +248,7 @@ public class MoviesService {
             return wasExisting;
         }
     }
-    
+
     /**
      * 检查评分是否已存在
      */
@@ -223,39 +262,39 @@ public class MoviesService {
         if (!movieExists(title)) {
             return null; // 电影不存在，返回null让Controller返回404
         }
-        
+
         Map<String, Object> ratingData = moviesMapper.selectRatingAggregate(title);
-        
+
         Double average = null;
         Integer count = 0;
-        
+
         if (ratingData != null) {
             Object avgObj = ratingData.get("average");
             Object countObj = ratingData.get("count");
-            
+
             if (avgObj instanceof Double) {
                 average = (Double) avgObj;
             } else if (avgObj instanceof Number) {
                 average = ((Number) avgObj).doubleValue();
             }
-            
+
             if (countObj instanceof Long) {
                 count = ((Long) countObj).intValue();
             } else if (countObj instanceof Integer) {
                 count = (Integer) countObj;
             }
         }
-        
+
         // 将平均值四舍五入到1位小数
         if (average != null) {
             average = Math.round(average * 10.0) / 10.0;
         } else {
             average = 0.0;
         }
-        
+
         return new RatingAggregate(average, count);
     }
-    
+
     /**
      * 检查电影是否存在
      */
